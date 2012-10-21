@@ -6,6 +6,7 @@ import org.eclipse.jetty.testing.ServletTester;
 import org.greencheek.yammer.metrics.web.filter.ResponseCodeFilter;
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.springframework.mock.web.*;
 
@@ -103,12 +104,18 @@ public class ResponseCodeFilterRequestsPerSecondTest {
         try {
             statsresponse.parse(tester.getResponses(statsrequest.generate()));
             assertTrue("Should have at least 2 requests per second", getMeterMean(statsresponse.getContent(), "requestsPerSecond") > 2);
-            assertEquals("Should have handled 20 filter requests", 20.0,getMeterCount(statsresponse.getContent(), "requestsPerSecond"),0.0);
+            assertEquals("Should have handled 20 filter requests", 20.0, getMeterCount(statsresponse.getContent(), "requestsPerSecond"), 0.0);
         } catch(Exception e) {
             e.printStackTrace();
         }
     }
 
+
+    @Ignore
+    @Test
+    public void testRequestsPerSecondViaHttpGetRequests() {
+
+    }
 
     private double getMeterCount(String json, String meterName) {
         return getMeterValue(json,meterName,"count");
