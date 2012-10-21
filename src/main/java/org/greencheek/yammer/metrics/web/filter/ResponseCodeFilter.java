@@ -121,7 +121,7 @@ public class ResponseCodeFilter implements Filter
         metricNames = new ArrayList<String>();
 
         // Requests Handled Per Second
-        requestsPerSecond = Metrics.newMeter(responseCodeFilterClass, "requests", "requests", TimeUnit.SECONDS);
+        requestsPerSecond = Metrics.newMeter(responseCodeFilterClass, "requestsPerSecond", "requests", TimeUnit.SECONDS);
         metricNames.add("requests");
         // The XXX responses per second
         this.responses = new Meter[]{
