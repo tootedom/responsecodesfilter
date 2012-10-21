@@ -17,12 +17,11 @@ package org.greencheek.yammer.metrics.web.filter;
 
 import com.yammer.metrics.Metrics;
 import com.yammer.metrics.core.*;
+import com.yammer.metrics.core.Timer;
 import com.yammer.metrics.util.RatioGauge;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 import javax.servlet.*;
 import javax.servlet.http.HttpServletRequest;
@@ -39,6 +38,24 @@ public class ResponseCodeFilter implements Filter
     private final static String GET = "GET", POST = "POST", HEAD = "HEAD", PUT = "PUT",
             DELETE = "DELETE";
 
+    private static final String PING_ADMIN_URL ="/ping";
+    private static final String METRIC_ADMIN_URL ="/metrics";
+    private static final String HEALTH_ADMIN_URL ="/healthcheck";
+    private static final String THREAD_ADMIN_URL ="/threads";
+
+    public static final String PING_ADMIN_URL_PARAM = "ping-endpoint";
+    public static final String METRIC_ADMIN_URL_PARAM = "metric-endpoint";
+    public static final String HEALTH_ADMIN_URL_PARAM = "health-endpoint";
+    public static final String THREAD_ADMIN_URL_PARAM = "threads-endpoint";
+
+    public String pingUrl;
+    public String metricsUrl;
+    public String healthUrl;
+    public String threadUrl;
+
+
+    // Requests for specifically monitoring metrics requests
+    private Map<String,Meter> adminMetrics;
 
     // Timers for last requests.
     private Timer timeTakenForGetsPerSecond;
@@ -47,6 +64,7 @@ public class ResponseCodeFilter implements Filter
     private Timer timeTakenForPutPerSecond;
     private Timer timeTakenForDeletePerSecond;
     private Timer timeTakenForOtherRequestTypesForSecond;
+
 
 
     // The response types being output per second
@@ -69,8 +87,34 @@ public class ResponseCodeFilter implements Filter
     @Override
     public void init(FilterConfig filterConfig) throws ServletException {
         // Create the metrics when the filter is initialised
+        createAdminMetrics(filterConfig);
         createMetrics();
 
+    }
+
+    private synchronized void createAdminMetrics(FilterConfig filterConfig) {
+        readAdminConfigUrls(filterConfig);
+        adminMetrics = new HashMap<String, Meter>(4);
+        adminMetrics.put(pingUrl,Metrics.newMeter(responseCodeFilterClass, "pingMetricRequests", "requests", TimeUnit.SECONDS));
+        adminMetrics.put(threadUrl,Metrics.newMeter(responseCodeFilterClass, "threadsMetricRequests", "requests", TimeUnit.SECONDS));
+        adminMetrics.put(metricsUrl,Metrics.newMeter(responseCodeFilterClass, "metricsMetricRequests", "requests", TimeUnit.SECONDS));
+        adminMetrics.put(healthUrl,Metrics.newMeter(responseCodeFilterClass, "healthMetricRequests", "requests", TimeUnit.SECONDS));
+    }
+
+    private String getInitParam(String paramName,String defaultValue, FilterConfig filterConfig) {
+        String parameterValue = filterConfig.getInitParameter(paramName);
+        if(parameterValue==null || parameterValue.length()==0) {
+            return defaultValue;
+        } else {
+            return parameterValue;
+        }
+    }
+
+    private synchronized void readAdminConfigUrls(FilterConfig filterConfig) {
+        pingUrl = getInitParam(PING_ADMIN_URL_PARAM,PING_ADMIN_URL,filterConfig);
+        metricsUrl = getInitParam(METRIC_ADMIN_URL_PARAM,METRIC_ADMIN_URL,filterConfig);
+        healthUrl = getInitParam(HEALTH_ADMIN_URL_PARAM,HEALTH_ADMIN_URL,filterConfig);
+        threadUrl = getInitParam(THREAD_ADMIN_URL_PARAM,THREAD_ADMIN_URL,filterConfig);
     }
 
     private Gauge[] createNonSuccessRatio(Meter requestsPerSecond,Meter responseCodeMeter, String responseCode) {
@@ -78,8 +122,8 @@ public class ResponseCodeFilter implements Filter
         metricNames.add("percent-" + responseCode + "-5m");
 
         return new Gauge[] {
-            Metrics.newGauge(responseCodeFilterClass,"percent-" + responseCode + "-1m",createOneMinRatio(requestsPerSecond,responseCodeMeter)),
-            Metrics.newGauge(responseCodeFilterClass,"percent-" + responseCode + "-5m",createFiveMinRatio(requestsPerSecond, responseCodeMeter))
+            Metrics.newGauge(responseCodeFilterClass,"percent-" + responseCode + "-1m","requests",createOneMinRatio(requestsPerSecond,responseCodeMeter)),
+            Metrics.newGauge(responseCodeFilterClass,"percent-" + responseCode + "-5m","requests",createFiveMinRatio(requestsPerSecond, responseCodeMeter))
         };
 
 
@@ -143,14 +187,14 @@ public class ResponseCodeFilter implements Filter
 
         addRatioGauge(nonSuccessCodes,createNonSuccessRatio(requestsPerSecond, responses[2], "3xx"));
         addRatioGauge(nonSuccessCodes,createNonSuccessRatio(requestsPerSecond, responses[3], "4xx"));
-        addRatioGauge(nonSuccessCodes,createNonSuccessRatio(requestsPerSecond, responses[3], "5xx"));
+        addRatioGauge(nonSuccessCodes,createNonSuccessRatio(requestsPerSecond, responses[4], "5xx"));
 
-        timeTakenForGetsPerSecond = Metrics.newTimer(responseCodeFilterClass, "get-requests", TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
-        timeTakenForPostPerSecond = Metrics.newTimer(responseCodeFilterClass, "post-requests", TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
-        timeTakenForHeadPerSecond = Metrics.newTimer(responseCodeFilterClass, "head-requests", TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
-        timeTakenForPutPerSecond = Metrics.newTimer(responseCodeFilterClass, "put-requests", TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
-        timeTakenForDeletePerSecond = Metrics.newTimer(responseCodeFilterClass, "delete-requests", TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
-        timeTakenForOtherRequestTypesForSecond = Metrics.newTimer(responseCodeFilterClass, "other-requests", TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
+        timeTakenForGetsPerSecond = Metrics.newTimer(responseCodeFilterClass, "get-requests","requests", TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
+        timeTakenForPostPerSecond = Metrics.newTimer(responseCodeFilterClass, "post-requests","requests", TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
+        timeTakenForHeadPerSecond = Metrics.newTimer(responseCodeFilterClass, "head-requests","requests", TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
+        timeTakenForPutPerSecond = Metrics.newTimer(responseCodeFilterClass, "put-requests","requests", TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
+        timeTakenForDeletePerSecond = Metrics.newTimer(responseCodeFilterClass, "delete-requests","requests", TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
+        timeTakenForOtherRequestTypesForSecond = Metrics.newTimer(responseCodeFilterClass, "other-requests","requests", TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
 
         metricNames.add("get-requests");
         metricNames.add("post-requests");
@@ -158,6 +202,11 @@ public class ResponseCodeFilter implements Filter
         metricNames.add("put-requests");
         metricNames.add("delete-requests");
         metricNames.add("other-requests");
+
+        metricNames.add("ping-admin-requests");
+        metricNames.add("metrics-admin-requests");
+        metricNames.add("threads-admin-requests");
+        metricNames.add("health-admin-requests");
 
     }
 
@@ -181,6 +230,13 @@ public class ResponseCodeFilter implements Filter
         } finally {
             context.stop();
             updateResponseRate(wrappedResponse.getStatus());
+            updateAdminMetricsIfRequestMatched(((HttpServletRequest) request).getServletPath());
+        }
+    }
+
+    private void updateAdminMetricsIfRequestMatched(String path) {
+        if(adminMetrics.containsKey(path)) {
+            adminMetrics.get(path).mark();
         }
     }
 
