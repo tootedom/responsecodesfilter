@@ -29,8 +29,9 @@ public class ResponseCodeFilterRequestsPerSecondTest {
 
 
     private FilterChain mockFilterChain;
-    ResponseCodeFilter filter;
-    ServletTester tester;
+    private ResponseCodeFilter filter;
+    private ServletTester tester;
+    private String filterName;
 
     @Before
     public void setUp() throws Exception {
@@ -69,12 +70,17 @@ public class ResponseCodeFilterRequestsPerSecondTest {
 
     @After
     public void tearDown() {
+
+        filter.destroy();
+
         try {
             tester.stop();
         } catch (Exception e) {
             e.printStackTrace();
             fail("Failed to stop jetty context");
         }
+
+
     }
 
     @Test
@@ -101,14 +107,21 @@ public class ResponseCodeFilterRequestsPerSecondTest {
         statsrequest.setURI("/metrics");
         statsrequest.setVersion("HTTP/1.1");
 
+        String content = "";
         try {
             statsresponse.parse(tester.getResponses(statsrequest.generate()));
-            assertTrue("Should have at least 2 requests per second", getMeterMean(statsresponse.getContent(), "requestsPerSecond") > 2);
-            assertEquals("Should have handled 20 filter requests", 20.0, getMeterCount(statsresponse.getContent(), "requestsPerSecond"), 0.0);
+            content = statsresponse.getContent();
+
         } catch(Exception e) {
             e.printStackTrace();
+            fail("Exception parsing metrics response");
         }
+
+        assertTrue("Should have at least 2 requests per second", getMeterMean(content, "requestsPerSecond") > 2);
+        assertEquals("Should have handled 20 filter requests", 20.0, getMeterCount(content, "requestsPerSecond"), 0.0);
     }
+
+
 
 
     @Ignore
@@ -118,16 +131,20 @@ public class ResponseCodeFilterRequestsPerSecondTest {
     }
 
     private double getMeterCount(String json, String meterName) {
-        return getMeterValue(json,meterName,"count");
+        return getRequestMeterValue(json,meterName,"count");
     }
     private double getMeterMean(String json, String meterName) {
-        return getMeterValue(json,meterName,"mean");
+        return getRequestMeterValue(json,meterName,"mean");
     }
 
-    private double getMeterValue(String json, String meterName, String dataPoint) {
+    private double getRequestMeterValue(String json, String meterName, String dataPoint) {
         Map m = new GsonBuilder().create().fromJson(json,Map.class);
-        System.out.println(m);
-        Double val = ((Map<String,Map<String,Double>>)m.get("org.greencheek.yammer.metrics.web.filter.ResponseCodeFilter")).get(meterName).get(dataPoint);
+        Map<String,Map> requests = (Map<String,Map>)m.get(
+               ResponseCodeFilter.RESPONSE_CODE_FILTER_CLASS.getName()
+                        + "." + ResponseCodeFilter.DEFAULT_FILTER_NAME
+                        + ".requests");
+
+        Double val = (Double)requests.get(meterName).get(dataPoint);
         return val;
     }
 }

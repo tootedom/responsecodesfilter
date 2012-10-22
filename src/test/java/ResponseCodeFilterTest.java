@@ -67,6 +67,8 @@ public class ResponseCodeFilterTest {
 
     @After
     public void tearDown() {
+
+        filter.destroy();
         try {
             tester.stop();
         } catch (Exception e) {
@@ -97,18 +99,28 @@ public class ResponseCodeFilterTest {
         statsrequest.setURI("/metrics");
         statsrequest.setVersion("HTTP/1.1");
 
+        String content = "";
         try {
             statsresponse.parse(tester.getResponses(statsrequest.generate()));
-            assertEquals("one get request should have been filtered", 1.0, getTimerCount(statsresponse.getContent(), "get-requests"),0.0);
+            content = statsresponse.getContent();
+            System.out.println(content);
         } catch(Exception e) {
             e.printStackTrace();;
         }
+
+        assertEquals("one get request should have been filtered", 1.0, getTimerCount(content, "get-requests"),0.0);
+
     }
 
 
     private double getTimerCount(String json, String timerName) {
         Map m = new GsonBuilder().create().fromJson(json,Map.class);
-        Double val = ((Map<String,Map<String,Map<String,Double>>>)m.get("org.greencheek.yammer.metrics.web.filter.ResponseCodeFilter")).get(timerName).get("rate").get("count");
+        System.out.println(m);
+        Map<String,Map<String,Map>> requests = (Map<String,Map<String,Map>>)m.get(
+                ResponseCodeFilter.RESPONSE_CODE_FILTER_CLASS.getName()
+                        + "." + ResponseCodeFilter.DEFAULT_FILTER_NAME
+                        + ".requests");
+        Double val = (Double)(requests.get(timerName).get("rate").get("count"));
         return val;
     }
 }

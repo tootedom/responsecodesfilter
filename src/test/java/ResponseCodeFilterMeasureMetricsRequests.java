@@ -11,12 +11,7 @@ import org.greencheek.yammer.metrics.web.filter.ResponseCodeFilter;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import org.springframework.mock.web.*;
 
-import javax.servlet.FilterChain;
-import javax.servlet.ServletContext;
-import javax.servlet.ServletRequest;
-import javax.servlet.ServletResponse;
 import java.util.Map;
 import java.util.UUID;
 
@@ -32,17 +27,17 @@ import static org.junit.Assert.fail;
 public class ResponseCodeFilterMeasureMetricsRequests {
 
     ServletTester tester;
-
+    FilterHolder holder;
     @Before
     public void setUp() throws Exception {
 
         tester = new ServletTester();
         tester.setContextPath("/distribution");
-        FilterHolder holder = tester.addFilter(ResponseCodeFilter.class, "/*", 0);
-        holder.setInitParameter(ResponseCodeFilter.HEALTH_ADMIN_URL_PARAM,"/admin/healthcheck");
-        holder.setInitParameter(ResponseCodeFilter.PING_ADMIN_URL_PARAM,"/admin/ping");
-        holder.setInitParameter(ResponseCodeFilter.THREAD_ADMIN_URL_PARAM,"/admin/threads");
-        holder.setInitParameter(ResponseCodeFilter.METRIC_ADMIN_URL_PARAM,"/admin/metrics");
+        holder = tester.addFilter(ResponseCodeFilter.class, "/*", 0);
+        holder.setInitParameter(ResponseCodeFilter.CONFIG_PARAM_HEALTH_ADMIN_URL,"/admin/healthcheck");
+        holder.setInitParameter(ResponseCodeFilter.CONFIG_PARAM_PING_ADMIN_URL,"/admin/ping");
+        holder.setInitParameter(ResponseCodeFilter.CONFIG_PARAM_THREAD_ADMIN_URL,"/admin/threads");
+        holder.setInitParameter(ResponseCodeFilter.CONFIG_PARAM_METRIC_ADMIN_URL,"/admin/metrics");
 
         ServletHolder metricsServlet = tester.addServlet(MetricsServlet.class.getName(),"/admin/metrics");
         tester.addServlet(PingServlet.class.getName(),"/admin/ping");
@@ -64,6 +59,7 @@ public class ResponseCodeFilterMeasureMetricsRequests {
     @After
     public void tearDown() {
         try {
+            holder.destroyInstance(holder.getFilter());
             tester.stop();
         } catch (Exception e) {
             e.printStackTrace();
@@ -150,7 +146,11 @@ public class ResponseCodeFilterMeasureMetricsRequests {
 
     private double getMeterValue(String json, String meterName, String dataPoint) {
         Map m = new GsonBuilder().create().fromJson(json,Map.class);
-        Double val = ((Map<String,Map<String,Double>>)m.get("org.greencheek.yammer.metrics.web.filter.ResponseCodeFilter")).get(meterName).get(dataPoint);
+        Map<String,Map> requests = (Map<String,Map>)m.get(
+                ResponseCodeFilter.RESPONSE_CODE_FILTER_CLASS.getName()
+                        + "." + ResponseCodeFilter.DEFAULT_FILTER_NAME
+                        + ".requests");
+        Double val =(Double)requests.get(meterName).get(dataPoint);
         return val;
     }
 }

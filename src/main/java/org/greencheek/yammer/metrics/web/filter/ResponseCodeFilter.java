@@ -22,6 +22,7 @@ import com.yammer.metrics.util.RatioGauge;
 
 import java.io.IOException;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import javax.servlet.*;
 import javax.servlet.http.HttpServletRequest;
@@ -35,23 +36,36 @@ import javax.servlet.http.HttpServletResponse;
  */
 public class ResponseCodeFilter implements Filter
 {
+    public final static String DEFAULT_FILTER_NAME = "response-code-filter";
+
+    public static final Class<ResponseCodeFilter> RESPONSE_CODE_FILTER_CLASS = ResponseCodeFilter.class;
+
     private final static String GET = "GET", POST = "POST", HEAD = "HEAD", PUT = "PUT",
             DELETE = "DELETE";
 
-    private static final String PING_ADMIN_URL ="/ping";
-    private static final String METRIC_ADMIN_URL ="/metrics";
-    private static final String HEALTH_ADMIN_URL ="/healthcheck";
-    private static final String THREAD_ADMIN_URL ="/threads";
+    private static final String DEFAULT_PING_ADMIN_URL ="/ping";
+    private static final String DEFAULT_METRIC_ADMIN_URL ="/metrics";
+    private static final String DEFAULT_HEALTH_ADMIN_URL ="/healthcheck";
+    private static final String DEFAULT_THREAD_ADMIN_URL ="/threads";
+    private static final String DEFAULT_MONITORING_GROUP_NAME = RESPONSE_CODE_FILTER_CLASS.getPackage().getName();
+    private static final String DEFAULT_MONITORING_TYPE_NAME = RESPONSE_CODE_FILTER_CLASS.getSimpleName().replaceAll("\\$$", "");
 
-    public static final String PING_ADMIN_URL_PARAM = "ping-endpoint";
-    public static final String METRIC_ADMIN_URL_PARAM = "metric-endpoint";
-    public static final String HEALTH_ADMIN_URL_PARAM = "health-endpoint";
-    public static final String THREAD_ADMIN_URL_PARAM = "threads-endpoint";
+    public static final String CONFIG_PARAM_PING_ADMIN_URL = "ping-endpoint";
+    public static final String CONFIG_PARAM_METRIC_ADMIN_URL = "metric-endpoint";
+    public static final String CONFIG_PARAM_HEALTH_ADMIN_URL = "health-endpoint";
+    public static final String CONFIG_PARAM_THREAD_ADMIN_URL = "threads-endpoint";
+    public static final String CONFIG_PARAM_MONITORING_GROUP_NAME = "monitoring-group-name";
+    public static final String CONFIG_PARAM_MONITORING_TYPE_NAME = "monitoring-type-name";
 
     public String pingUrl;
     public String metricsUrl;
     public String healthUrl;
     public String threadUrl;
+    public String monitoringGroupName;
+    public String monitoringTypeName;
+
+    private volatile String filterName;
+
 
 
     // Requests for specifically monitoring metrics requests
@@ -65,8 +79,6 @@ public class ResponseCodeFilter implements Filter
     private Timer timeTakenForDeletePerSecond;
     private Timer timeTakenForOtherRequestTypesForSecond;
 
-
-
     // The response types being output per second
     private Meter[] responses;
 
@@ -76,30 +88,154 @@ public class ResponseCodeFilter implements Filter
     // The ratio for the number of non success codes in the past 5,10,15 minutes
     private List<Gauge> nonSuccessCodes;
 
-    private final Class<ResponseCodeFilter> responseCodeFilterClass;
 
-    private List<String> metricNames = new ArrayList<String>();
+
+    public static final String METRIC_NAME_LOOKUP_REQUESTS_PER_SECOND= "requestsPerSecond";
+    public static final String METRIC_NAME_LOOKUP_PING_MONITORING_REQUESTS = "pingMonitoringRequests";
+    public static final String METRIC_NAME_LOOKUP_THREAD_MONITORING_REQUESTS = "threadsMonitoringRequests";
+    public static final String METRIC_NAME_LOOKUP_HEALTH_MONITORING_REQUESTS = "healthMonitoringRequests";
+    public static final String METRIC_NAME_LOOKUP_METRICS_MONITORING_REQUESTS = "metricsMonitoringRequests";
+    public static final String METRIC_NAME_LOOKUP_1XX_RESPONSES = "1xx-responses";
+    public static final String METRIC_NAME_LOOKUP_2XX_RESPONSES = "2xx-responses";
+    public static final String METRIC_NAME_LOOKUP_3XX_RESPONSES = "3xx-responses";
+    public static final String METRIC_NAME_LOOKUP_4XX_RESPONSES = "4xx-responses";
+    public static final String METRIC_NAME_LOOKUP_5XX_RESPONSES = "5xx-responses";
+    public static final String METRIC_NAME_LOOKUP_UNKNOWN_RESPONSES = "unknown-responses";
+    public static final String METRIC_NAME_LOOKUP_GET_REQUEST = "get-requests";
+    public static final String METRIC_NAME_LOOKUP_HEAD_REQUEST = "head-requests";
+    public static final String METRIC_NAME_LOOKUP_PUT_REQUEST = "put-requests";
+    public static final String METRIC_NAME_LOOKUP_DELETE_REQUEST = "delete-requests";
+    public static final String METRIC_NAME_LOOKUP_POST_REQUEST = "post-requests";
+    public static final String METRIC_NAME_LOOKUP_OTHER_REQUEST = "other-requests";
+
+
+    private ConcurrentHashMap<String,MetricName> metricNames = new ConcurrentHashMap<String, MetricName>();
+
+    private void createRequestBasedMetricName(String name) {
+        createMetricName(name,"requests");
+    }
+
+    private void createResponseBasedMetricName(String name) {
+        createMetricName(name,"responses");
+    }
+
+    private void createMetricName(String name,String type) {
+        if(getFilterName()!=null && getFilterName().length()!=0)  type = "."+type;
+        metricNames.put(name,new MetricName(monitoringGroupName,monitoringTypeName, name, getFilterName()+type));
+    }
+
+    private void createMetricNames() {
+        createRequestBasedMetricName(METRIC_NAME_LOOKUP_REQUESTS_PER_SECOND);
+        createRequestBasedMetricName(METRIC_NAME_LOOKUP_PING_MONITORING_REQUESTS);
+        createRequestBasedMetricName(METRIC_NAME_LOOKUP_THREAD_MONITORING_REQUESTS);
+        createRequestBasedMetricName(METRIC_NAME_LOOKUP_HEALTH_MONITORING_REQUESTS);
+        createRequestBasedMetricName(METRIC_NAME_LOOKUP_METRICS_MONITORING_REQUESTS);
+
+        createRequestBasedMetricName(METRIC_NAME_LOOKUP_GET_REQUEST);
+        createRequestBasedMetricName(METRIC_NAME_LOOKUP_HEAD_REQUEST);
+        createRequestBasedMetricName(METRIC_NAME_LOOKUP_PUT_REQUEST);
+        createRequestBasedMetricName(METRIC_NAME_LOOKUP_DELETE_REQUEST);
+        createRequestBasedMetricName(METRIC_NAME_LOOKUP_POST_REQUEST);
+        createRequestBasedMetricName(METRIC_NAME_LOOKUP_OTHER_REQUEST);
+        
+        createResponseBasedMetricName(METRIC_NAME_LOOKUP_1XX_RESPONSES);
+        createResponseBasedMetricName(METRIC_NAME_LOOKUP_2XX_RESPONSES);
+        createResponseBasedMetricName(METRIC_NAME_LOOKUP_3XX_RESPONSES);
+        createResponseBasedMetricName(METRIC_NAME_LOOKUP_4XX_RESPONSES);
+        createResponseBasedMetricName(METRIC_NAME_LOOKUP_5XX_RESPONSES);
+        createResponseBasedMetricName(METRIC_NAME_LOOKUP_UNKNOWN_RESPONSES);
+
+    }
+
 
     public ResponseCodeFilter() {
-        responseCodeFilterClass = ResponseCodeFilter.class;
+    }
+
+    public void setFilterName(FilterConfig filterConfig)  {
+        String name = filterConfig.getFilterName();
+        if(name == null || name.length()==0) this.filterName = DEFAULT_FILTER_NAME;
+        else this.filterName = name;
+    }
+
+    public String getFilterName() {
+        return this.filterName;
+    }
+
+    private void setMonitoringGrouping(FilterConfig filterConfig) {
+        String groupName = filterConfig.getInitParameter(CONFIG_PARAM_MONITORING_GROUP_NAME);
+        if(groupName == null) monitoringGroupName = DEFAULT_MONITORING_GROUP_NAME;
+        else monitoringGroupName = groupName;
+
+        String typeName = filterConfig.getInitParameter(CONFIG_PARAM_MONITORING_TYPE_NAME);
+        if(typeName == null) monitoringTypeName = DEFAULT_MONITORING_TYPE_NAME;
+        else monitoringTypeName = typeName;
     }
 
     @Override
     public void init(FilterConfig filterConfig) throws ServletException {
-        // Create the metrics when the filter is initialised
-        createAdminMetrics(filterConfig);
-        createMetrics();
+        // Record the filter's name
+        setFilterName(filterConfig);
 
+        // Setup the monitoring grouping under which metrics are recorded
+        setMonitoringGrouping(filterConfig);
+
+        // Create the metrics when the filter is initialised
+        createMetrics(filterConfig);
     }
 
-    private synchronized void createAdminMetrics(FilterConfig filterConfig) {
+
+    public synchronized void createMetrics(FilterConfig filterConfig) {
+        // setup the metric names
+        createMetricNames();
+
+        // create metrics that monitor the number of times an metric admin endpoint has
+        // been hit
+        createAdminEndPointMetrics(filterConfig);
+
+        // Requests Handled Per Second
+        requestsPerSecond = Metrics.newMeter(metricNames.get(METRIC_NAME_LOOKUP_REQUESTS_PER_SECOND),"requests", TimeUnit.SECONDS);
+
+        // The XXX responses per second
+        this.responses = new Meter[]{
+                Metrics.newMeter(metricNames.get(METRIC_NAME_LOOKUP_1XX_RESPONSES), "responses", TimeUnit.SECONDS), // 1xx
+                Metrics.newMeter(metricNames.get(METRIC_NAME_LOOKUP_2XX_RESPONSES), "responses", TimeUnit.SECONDS), // 2xx
+                Metrics.newMeter(metricNames.get(METRIC_NAME_LOOKUP_3XX_RESPONSES), "responses", TimeUnit.SECONDS), // 3xx
+                Metrics.newMeter(metricNames.get(METRIC_NAME_LOOKUP_4XX_RESPONSES), "responses", TimeUnit.SECONDS), // 4xx
+                Metrics.newMeter(metricNames.get(METRIC_NAME_LOOKUP_5XX_RESPONSES), "responses", TimeUnit.SECONDS), // 5xx
+                Metrics.newMeter(metricNames.get(METRIC_NAME_LOOKUP_UNKNOWN_RESPONSES), "responses", TimeUnit.SECONDS) // unknown
+        };
+
+        nonSuccessCodes = new ArrayList<Gauge>(6);
+
+        addRatioGauge(nonSuccessCodes,createNonSuccessRatio(requestsPerSecond, responses[2], "3xx"));
+        addRatioGauge(nonSuccessCodes,createNonSuccessRatio(requestsPerSecond, responses[3], "4xx"));
+        addRatioGauge(nonSuccessCodes,createNonSuccessRatio(requestsPerSecond, responses[4], "5xx"));
+
+        timeTakenForGetsPerSecond = Metrics.newTimer(metricNames.get(METRIC_NAME_LOOKUP_GET_REQUEST), TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
+        timeTakenForPostPerSecond = Metrics.newTimer(metricNames.get(METRIC_NAME_LOOKUP_POST_REQUEST), TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
+        timeTakenForHeadPerSecond = Metrics.newTimer(metricNames.get(METRIC_NAME_LOOKUP_HEAD_REQUEST), TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
+        timeTakenForPutPerSecond = Metrics.newTimer(metricNames.get(METRIC_NAME_LOOKUP_PUT_REQUEST), TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
+        timeTakenForDeletePerSecond = Metrics.newTimer(metricNames.get(METRIC_NAME_LOOKUP_DELETE_REQUEST),TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
+        timeTakenForOtherRequestTypesForSecond = Metrics.newTimer(metricNames.get(METRIC_NAME_LOOKUP_OTHER_REQUEST), TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
+    }
+
+    private synchronized void createAdminEndPointMetrics(FilterConfig filterConfig) {
         readAdminConfigUrls(filterConfig);
         adminMetrics = new HashMap<String, Meter>(4);
-        adminMetrics.put(pingUrl,Metrics.newMeter(responseCodeFilterClass, "pingMetricRequests", "requests", TimeUnit.SECONDS));
-        adminMetrics.put(threadUrl,Metrics.newMeter(responseCodeFilterClass, "threadsMetricRequests", "requests", TimeUnit.SECONDS));
-        adminMetrics.put(metricsUrl,Metrics.newMeter(responseCodeFilterClass, "metricsMetricRequests", "requests", TimeUnit.SECONDS));
-        adminMetrics.put(healthUrl,Metrics.newMeter(responseCodeFilterClass, "healthMetricRequests", "requests", TimeUnit.SECONDS));
+        adminMetrics.put(pingUrl,Metrics.newMeter(metricNames.get(METRIC_NAME_LOOKUP_PING_MONITORING_REQUESTS),"requests", TimeUnit.SECONDS));
+        adminMetrics.put(threadUrl,Metrics.newMeter(metricNames.get(METRIC_NAME_LOOKUP_THREAD_MONITORING_REQUESTS), "requests", TimeUnit.SECONDS));
+        adminMetrics.put(metricsUrl,Metrics.newMeter(metricNames.get(METRIC_NAME_LOOKUP_METRICS_MONITORING_REQUESTS), "requests", TimeUnit.SECONDS));
+        adminMetrics.put(healthUrl,Metrics.newMeter(metricNames.get(METRIC_NAME_LOOKUP_HEALTH_MONITORING_REQUESTS), "requests", TimeUnit.SECONDS));
     }
+
+
+    private synchronized void readAdminConfigUrls(FilterConfig filterConfig) {
+        pingUrl = getInitParam(CONFIG_PARAM_PING_ADMIN_URL, DEFAULT_PING_ADMIN_URL,filterConfig);
+        metricsUrl = getInitParam(CONFIG_PARAM_METRIC_ADMIN_URL, DEFAULT_METRIC_ADMIN_URL,filterConfig);
+        healthUrl = getInitParam(CONFIG_PARAM_HEALTH_ADMIN_URL, DEFAULT_HEALTH_ADMIN_URL,filterConfig);
+        threadUrl = getInitParam(CONFIG_PARAM_THREAD_ADMIN_URL, DEFAULT_THREAD_ADMIN_URL,filterConfig);
+    }
+
 
     private String getInitParam(String paramName,String defaultValue, FilterConfig filterConfig) {
         String parameterValue = filterConfig.getInitParameter(paramName);
@@ -110,20 +246,17 @@ public class ResponseCodeFilter implements Filter
         }
     }
 
-    private synchronized void readAdminConfigUrls(FilterConfig filterConfig) {
-        pingUrl = getInitParam(PING_ADMIN_URL_PARAM,PING_ADMIN_URL,filterConfig);
-        metricsUrl = getInitParam(METRIC_ADMIN_URL_PARAM,METRIC_ADMIN_URL,filterConfig);
-        healthUrl = getInitParam(HEALTH_ADMIN_URL_PARAM,HEALTH_ADMIN_URL,filterConfig);
-        threadUrl = getInitParam(THREAD_ADMIN_URL_PARAM,THREAD_ADMIN_URL,filterConfig);
-    }
-
     private Gauge[] createNonSuccessRatio(Meter requestsPerSecond,Meter responseCodeMeter, String responseCode) {
-        metricNames.add("percent-" + responseCode + "-1m");
-        metricNames.add("percent-" + responseCode + "-5m");
+        String oneMin = "percent-" + responseCode + "-1m";
+        String fiveMin = "percent-" + responseCode + "-5m";
+
+
+        createRequestBasedMetricName(oneMin);
+        createRequestBasedMetricName(fiveMin);
 
         return new Gauge[] {
-            Metrics.newGauge(responseCodeFilterClass,"percent-" + responseCode + "-1m","requests",createOneMinRatio(requestsPerSecond,responseCodeMeter)),
-            Metrics.newGauge(responseCodeFilterClass,"percent-" + responseCode + "-5m","requests",createFiveMinRatio(requestsPerSecond, responseCodeMeter))
+                Metrics.newGauge(metricNames.get(oneMin),createOneMinRatio(requestsPerSecond, responseCodeMeter)),
+                Metrics.newGauge(metricNames.get(fiveMin),createFiveMinRatio(requestsPerSecond, responseCodeMeter))
         };
 
 
@@ -161,60 +294,12 @@ public class ResponseCodeFilter implements Filter
         listToAddGaugesTo.addAll(Arrays.asList(gaugesToAdd));
     }
 
-    private synchronized void createMetrics() {
-        metricNames = new ArrayList<String>();
-
-        // Requests Handled Per Second
-        requestsPerSecond = Metrics.newMeter(responseCodeFilterClass, "requestsPerSecond", "requests", TimeUnit.SECONDS);
-        metricNames.add("requests");
-        // The XXX responses per second
-        this.responses = new Meter[]{
-                Metrics.newMeter(responseCodeFilterClass, "1xx-responses", "responses", TimeUnit.SECONDS), // 1xx
-                Metrics.newMeter(responseCodeFilterClass, "2xx-responses", "responses", TimeUnit.SECONDS), // 2xx
-                Metrics.newMeter(responseCodeFilterClass, "3xx-responses", "responses", TimeUnit.SECONDS), // 3xx
-                Metrics.newMeter(responseCodeFilterClass, "4xx-responses", "responses", TimeUnit.SECONDS), // 4xx
-                Metrics.newMeter(responseCodeFilterClass, "5xx-responses", "responses", TimeUnit.SECONDS), // 5xx
-                Metrics.newMeter(responseCodeFilterClass, "unknown-responses", "responses", TimeUnit.SECONDS) // 5xx
-        };
-        metricNames.add("1xx-responses");
-        metricNames.add("2xx-responses");
-        metricNames.add("3xx-responses");
-        metricNames.add("4xx-responses");
-        metricNames.add("5xx-responses");
-        metricNames.add("unknown-responses");
-
-        nonSuccessCodes = new ArrayList<Gauge>(6);
-
-        addRatioGauge(nonSuccessCodes,createNonSuccessRatio(requestsPerSecond, responses[2], "3xx"));
-        addRatioGauge(nonSuccessCodes,createNonSuccessRatio(requestsPerSecond, responses[3], "4xx"));
-        addRatioGauge(nonSuccessCodes,createNonSuccessRatio(requestsPerSecond, responses[4], "5xx"));
-
-        timeTakenForGetsPerSecond = Metrics.newTimer(responseCodeFilterClass, "get-requests","requests", TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
-        timeTakenForPostPerSecond = Metrics.newTimer(responseCodeFilterClass, "post-requests","requests", TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
-        timeTakenForHeadPerSecond = Metrics.newTimer(responseCodeFilterClass, "head-requests","requests", TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
-        timeTakenForPutPerSecond = Metrics.newTimer(responseCodeFilterClass, "put-requests","requests", TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
-        timeTakenForDeletePerSecond = Metrics.newTimer(responseCodeFilterClass, "delete-requests","requests", TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
-        timeTakenForOtherRequestTypesForSecond = Metrics.newTimer(responseCodeFilterClass, "other-requests","requests", TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
-
-        metricNames.add("get-requests");
-        metricNames.add("post-requests");
-        metricNames.add("head-requests");
-        metricNames.add("put-requests");
-        metricNames.add("delete-requests");
-        metricNames.add("other-requests");
-
-        metricNames.add("ping-admin-requests");
-        metricNames.add("metrics-admin-requests");
-        metricNames.add("threads-admin-requests");
-        metricNames.add("health-admin-requests");
-
-    }
 
     @Override
     public void destroy() {
         MetricsRegistry reg = Metrics.defaultRegistry();
-        for(String c : metricNames) {
-            reg.removeMetric(responseCodeFilterClass,c);
+        for(MetricName name : metricNames.values()) {
+            reg.removeMetric(name);
         }
 
     }
