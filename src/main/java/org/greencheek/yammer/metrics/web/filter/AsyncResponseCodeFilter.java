@@ -40,7 +40,12 @@ public class AsyncResponseCodeFilter extends ResponseCodeFilter
 
         HttpServletRequest servletRequest = (HttpServletRequest)request;
         try {
-            AsyncContext asyncContext = servletRequest.startAsync(request,response);
+            final AsyncContext asyncContext;
+            if(servletRequest.isAsyncStarted()) {
+                asyncContext = servletRequest.getAsyncContext();
+            } else {
+                asyncContext = servletRequest.startAsync(request,response);
+            }
             asyncContext.addListener(new AsyncMetricsRequestResponseListener(servletRequest));
             chain.doFilter(request, wrappedResponse);
         } finally {
