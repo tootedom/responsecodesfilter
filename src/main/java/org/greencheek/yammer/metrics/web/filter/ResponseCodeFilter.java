@@ -326,13 +326,13 @@ public class ResponseCodeFilter implements Filter
         }
     }
 
-    private void updateAdminMetricsIfRequestMatched(String path) {
+    protected void updateAdminMetricsIfRequestMatched(String path) {
         if(adminMetrics.containsKey(path)) {
             adminMetrics.get(path).mark();
         }
     }
 
-    private Timer getTimerForCurrentRequestMethodType(String method) {
+    protected Timer getTimerForCurrentRequestMethodType(String method) {
         if (GET.equalsIgnoreCase(method)) {
             return timeTakenForGetsPerSecond;
         } else if (POST.equalsIgnoreCase(method)) {
@@ -348,7 +348,7 @@ public class ResponseCodeFilter implements Filter
         }
     }
 
-    private void updateResponseRate(int responseCode) {
+    protected void updateResponseRate(int responseCode) {
         final int response = responseCode / 100;
         if (response >= 1 && response <= 5) {
             responses[response - 1].mark();

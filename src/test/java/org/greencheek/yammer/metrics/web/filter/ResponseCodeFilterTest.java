@@ -28,6 +28,7 @@ public class ResponseCodeFilterTest {
     private ResponseCodeFilter filter;
     private ServletTester tester;
     private MetricsFromJson jsonMetricsParser;
+    private int port;
 
     @Before
     public void setUp() throws Exception {
