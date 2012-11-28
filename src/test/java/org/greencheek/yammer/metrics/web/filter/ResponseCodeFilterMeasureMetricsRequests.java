@@ -1,3 +1,5 @@
+package org.greencheek.yammer.metrics.web.filter;
+
 import com.google.gson.GsonBuilder;
 import com.yammer.metrics.reporting.MetricsServlet;
 import com.yammer.metrics.reporting.PingServlet;

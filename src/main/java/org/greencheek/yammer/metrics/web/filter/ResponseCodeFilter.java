@@ -48,7 +48,6 @@ public class ResponseCodeFilter implements Filter
     private static final String DEFAULT_HEALTH_ADMIN_URL ="/healthcheck";
     private static final String DEFAULT_THREAD_ADMIN_URL ="/threads";
     private static final String DEFAULT_MONITORING_GROUP_NAME = RESPONSE_CODE_FILTER_CLASS.getPackage().getName();
-    private static final String DEFAULT_MONITORING_TYPE_NAME = RESPONSE_CODE_FILTER_CLASS.getSimpleName().replaceAll("\\$$", "");
 
     public static final String CONFIG_PARAM_PING_ADMIN_URL = "ping-endpoint";
     public static final String CONFIG_PARAM_METRIC_ADMIN_URL = "metric-endpoint";
@@ -120,8 +119,13 @@ public class ResponseCodeFilter implements Filter
     }
 
     private void createMetricName(String name,String type) {
-        if(getFilterName()!=null && getFilterName().length()!=0)  type = "."+type;
-        metricNames.put(name,new MetricName(monitoringGroupName,monitoringTypeName, name, getFilterName()+type));
+        metricNames.put(name,new MetricName(monitoringGroupName,monitoringTypeName, name, type));
+    }
+
+    public String getMetricsGroupName() {
+        StringBuilder b = new StringBuilder(monitoringGroupName);
+        b.append('.').append(monitoringTypeName);
+        return b.toString();
     }
 
     private void createMetricNames() {
@@ -152,7 +156,10 @@ public class ResponseCodeFilter implements Filter
     }
 
     public void setFilterName(FilterConfig filterConfig)  {
-        String name = filterConfig.getFilterName();
+        setFilterName(filterConfig.getFilterName());
+    }
+
+    public void setFilterName(String name) {
         if(name == null || name.length()==0) this.filterName = DEFAULT_FILTER_NAME;
         else this.filterName = name;
     }
@@ -167,7 +174,7 @@ public class ResponseCodeFilter implements Filter
         else monitoringGroupName = groupName;
 
         String typeName = filterConfig.getInitParameter(CONFIG_PARAM_MONITORING_TYPE_NAME);
-        if(typeName == null) monitoringTypeName = DEFAULT_MONITORING_TYPE_NAME;
+        if(typeName == null || typeName.trim().length()==0) monitoringTypeName = getFilterName();
         else monitoringTypeName = typeName;
     }
 

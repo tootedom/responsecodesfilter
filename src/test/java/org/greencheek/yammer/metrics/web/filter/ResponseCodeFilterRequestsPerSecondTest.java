@@ -1,21 +1,22 @@
-import com.google.gson.GsonBuilder;
-import com.yammer.metrics.Metrics;
+package org.greencheek.yammer.metrics.web.filter;
+
 import com.yammer.metrics.reporting.MetricsServlet;
-import org.eclipse.jetty.servlet.ServletHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
 import org.eclipse.jetty.testing.HttpTester;
 import org.eclipse.jetty.testing.ServletTester;
-import org.greencheek.yammer.metrics.web.filter.ResponseCodeFilter;
+import org.greencheek.yammer.metrics.web.filter.utils.MetricsFromJson;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.springframework.mock.web.*;
 
-import javax.servlet.*;
-
-import java.util.Map;
+import javax.servlet.FilterChain;
+import javax.servlet.ServletContext;
+import javax.servlet.ServletRequest;
+import javax.servlet.ServletResponse;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 /**
@@ -23,12 +24,13 @@ import static org.junit.Assert.fail;
  * Date: 21/10/2012
  * Time: 13:52
  */
-public class ResponseCodeFilterTest {
+public class ResponseCodeFilterRequestsPerSecondTest {
 
-
+    private MetricsFromJson jsonMetricsParser;
     private FilterChain mockFilterChain;
-    ResponseCodeFilter filter;
-    ServletTester tester;
+    private ResponseCodeFilter filter;
+    private ServletTester tester;
+    private String filterName;
 
     @Before
     public void setUp() throws Exception {
@@ -42,7 +44,7 @@ public class ResponseCodeFilterTest {
             @Override
             public void doFilter(ServletRequest req, ServletResponse res) {
                 try {
-                    Thread.sleep(1000);
+                    Thread.sleep(400);
                 } catch (Exception e) {
                 }
             }
@@ -63,30 +65,36 @@ public class ResponseCodeFilterTest {
             e.printStackTrace();;
             fail("Failed to start Jetty Context");
         }
+        jsonMetricsParser = new MetricsFromJson(filter);
     }
 
     @After
     public void tearDown() {
 
         filter.destroy();
+
         try {
             tester.stop();
         } catch (Exception e) {
             e.printStackTrace();
             fail("Failed to stop jetty context");
         }
+
+
     }
 
     @Test
-    public void testMetricRecorded() {
+    public void testRequestsPerSecond() {
         MockHttpServletRequest getRequest = new MockHttpServletRequest("GET","http://localhost:9090/");
         MockHttpServletRequest postRequest = new MockHttpServletRequest("POST","http://localhost:9090/");
 
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         try {
-            filter.doFilter(getRequest,response,mockFilterChain);
-            filter.doFilter(postRequest,response,mockFilterChain);
+            for(int i=0;i<10;i++) {
+                filter.doFilter(getRequest,response,mockFilterChain);
+                filter.doFilter(postRequest,response,mockFilterChain);
+            }
         } catch(Exception e) {
             fail("failed with exception during filter request");
         }
@@ -103,24 +111,21 @@ public class ResponseCodeFilterTest {
         try {
             statsresponse.parse(tester.getResponses(statsrequest.generate()));
             content = statsresponse.getContent();
-            System.out.println(content);
+
         } catch(Exception e) {
-            e.printStackTrace();;
+            e.printStackTrace();
+            fail("Exception parsing metrics response");
         }
 
-        assertEquals("one get request should have been filtered", 1.0, getTimerCount(content, "get-requests"),0.0);
+        assertTrue("Should have at least 2 requests per second", jsonMetricsParser.getMeterMean(content, "requestsPerSecond") > 2);
+        assertEquals("Should have handled 20 filter requests", 20.0, jsonMetricsParser.getRequestMeterCount(content, "requestsPerSecond"), 0.0);
+        assertEquals("Should have handled 10 GET requests", 10.0, jsonMetricsParser.getRequestTimerValue(content, "get-requests", "rate", "count"), 0.0);
+        assertEquals("Should have handled 10 POST requests", 10.0, jsonMetricsParser.getRequestTimerValue(content, "post-requests", "rate", "count"), 0.0);
+        assertTrue("Should have Percentile 99 of between 400 and 500, for all get requests",jsonMetricsParser.getTimerDurationValue(content, "get-requests", "p99")>=400.0);
+        assertTrue("Should have Percentile 99 of between 400 and 500, for all get requests",jsonMetricsParser.getTimerDurationValue(content, "get-requests", "p99")<=500.0);
 
     }
 
 
-    private double getTimerCount(String json, String timerName) {
-        Map m = new GsonBuilder().create().fromJson(json,Map.class);
-        System.out.println(m);
-        Map<String,Map<String,Map>> requests = (Map<String,Map<String,Map>>)m.get(
-                ResponseCodeFilter.RESPONSE_CODE_FILTER_CLASS.getName()
-                        + "." + ResponseCodeFilter.DEFAULT_FILTER_NAME
-                        + ".requests");
-        Double val = (Double)(requests.get(timerName).get("rate").get("count"));
-        return val;
-    }
+
 }
