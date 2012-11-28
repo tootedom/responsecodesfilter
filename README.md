@@ -21,34 +21,34 @@ The maven repositories are located at:
 A filter that is an extension of "**com.yammer.metrics.web.DefaultWebappMetricsFilter**" (http://metrics.codahale.com/manual/webapps/)
 that returns the following metrics:
 
-- Timers
--- delete-requests
--- get-requests
--- post-requests
--- put-requests
--- head-requests
--- other-requests
+### Timers
+- delete-requests
+- get-requests
+- post-requests
+- put-requests
+- head-requests
+- other-requests
 
-- Meters
--- requestsPerSecond
--- healthMonitoringRequests
--- metricsMonitoringRequests
--- pingMonitoringRequests
--- threadsMonitoringRequests
--- 1xx-responses
--- 2xx-responses
--- 3xx-responses
--- 4xx-responses
--- 5xx-responses
--- unknown-responses
+### Meters
+- requestsPerSecond
+- healthMonitoringRequests
+- metricsMonitoringRequests
+- pingMonitoringRequests
+- threadsMonitoringRequests
+- 1xx-responses
+- 2xx-responses
+- 3xx-responses
+- 4xx-responses
+- 5xx-responses
+- unknown-responses
 
-- Gauges
--- percent-3xx-1m
--- percent-3xx-5m
--- percent-4xx-1m
--- percent-4xx-5m
--- percent-5xx-1m
--- percent-5xx-5m
+### Gauges
+- percent-3xx-1m
+- percent-3xx-5m
+- percent-4xx-1m
+- percent-4xx-5m
+- percent-5xx-1m
+- percent-5xx-5m
 
 You can scroll to the bottom to see example output from the metrics servlet, with the monitoring data in Json format.
 
@@ -104,6 +104,20 @@ By default the "group" is **org.greencheek.yammer.metrics.web** and the "type" i
     </init-param>
 ```
 
+## Async Usage Info
+
+Just a hint, if using the Async Filter.  The AsyncResponseCodeFilter will start the AsyncContext; so in your
+Async Servlet 3 servlet, make sure you check if the HttpServletRequest is already in a Async.  For example:
+
+```java
+    final AsyncContext asyncContext;
+    if(request.isAsyncStarted()) {
+        asyncContext = request.getAsyncContext();
+    }
+    else {
+        asyncContext = request.startAsync(request, response);
+    }
+```
 
 ## Example Json Output
 
